@@ -2,8 +2,6 @@
 
 谷氨酸棒杆菌（*Corynebacterium glutamicum*）全基因组重测序分析流程。项目包含从双端 FASTQ 质控、修剪、BWA 比对、BAM 排序去重、bcftools 变异检测，到按等位基因频率（AF）拆分 polymorphic / highfreq 突变并用 snpEff 注释的脚本。
 
-这个 README 尽量写成“边学边跑”的说明文档：先解释重测序分析的基本原理，再说明每一步脚本在做什么，最后给出常用终端命令和排错方法。
-
 ## 重测序分析原理
 
 全基因组重测序（whole genome resequencing）通常不是从头组装一个新基因组，而是把样本测序得到的短序列 reads 比对到一个已知参考基因组上，然后寻找样本和参考基因组之间的差异。
