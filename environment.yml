@@ -1,0 +1,16 @@
+name: cg_seq
+channels:
+  - bioconda
+  - conda-forge
+  - defaults
+dependencies:
+  - python>=3.9
+  - bwa
+  - trim-galore
+  - cutadapt
+  - fastqc
+  - multiqc
+  - samtools
+  - bcftools
+  - snpeff
+  - picard

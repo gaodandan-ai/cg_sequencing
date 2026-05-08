@@ -1,0 +1,49 @@
+# System/editor files
+.DS_Store
+*.swp
+*.swo
+*~
+
+# Python caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Large sequencing input data
+/01_raw_data/*
+!/01_raw_data/.gitkeep
+
+# Generated QC and cleaned FASTQ files
+/03_qc/*
+!/03_qc/.gitkeep
+/04_clean_data/*
+!/04_clean_data/.gitkeep
+
+# Generated alignments
+/05_alignment/*
+!/05_alignment/.gitkeep
+
+# Generated variant outputs; keep compact summary tables if desired
+/06_variant_calling/*
+!/06_variant_calling/.gitkeep
+!/06_variant_calling/tables/
+/06_variant_calling/tables/*
+!/06_variant_calling/tables/*.tsv
+
+# Generated snpEff database files
+/07_annotation/*
+!/07_annotation/.gitkeep
+
+# Logs
+/08_logs/*
+!/08_logs/.gitkeep
+
+# Reference indexes and generated sidecars
+/00_reference/index/
+/00_reference/*.fai
+/00_reference/*.dict
+
+# Downloaded archives and local notes
+/02_scripts/*.zip
+/02_scripts/build_log.txt
+/02_scripts/beizhu.txt
