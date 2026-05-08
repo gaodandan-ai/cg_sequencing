@@ -5,8 +5,7 @@
 #SBATCH --output=08_logs/index_build/CG_PrepareIndex_%j.out
 #SBATCH -n 8  # 优化：索引构建最多用8核，足够且不浪费
 #SBATCH --mem=8G  # 优化：谷棒基因组小，8G内存完全够用
-#SBATCH --mail-type=end
-#SBATCH --mail-user=gaodd25@tib.cas.cn
+# 如需邮件提醒，可在本地提交脚本中自行添加 --mail-type / --mail-user
 
 # ============================================================================
 # 谷氨酸棒杆菌参考基因组索引准备脚本

@@ -23,6 +23,11 @@ shopt -s nullglob
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
+if [ -f "${PROJECT_ROOT}/config.env" ]; then
+    # shellcheck disable=SC1091
+    source "${PROJECT_ROOT}/config.env"
+fi
+
 export JAVA_OPTS="${JAVA_OPTS:-"-Xmx16g -Xms4g"}"
 
 bwa="${BWA:-bwa}"
@@ -41,7 +46,7 @@ reference="${REFERENCE:-"${PROJECT_ROOT}/00_reference/genome.fna"}"
 bwa_index="${BWA_INDEX:-"${PROJECT_ROOT}/00_reference/index/genome"}"
 
 SNPEFF_DATA_DIR="${SNPEFF_DATA_DIR:-"${PROJECT_ROOT}/07_annotation"}"
-CG_DB_NAME="Corynebacterium_glutamicum_ATCC13032"
+CG_DB_NAME="${CG_DB_NAME:-Corynebacterium_glutamicum_ATCC13032}"
 if [ -z "${SNPEFF_CONFIG:-}" ]; then
     if [ -n "${CONDA_PREFIX:-}" ]; then
         snpeff_configs=( "${CONDA_PREFIX}"/share/snpeff*/snpEff.config )
@@ -71,21 +76,34 @@ variant_tables="${VARIANT_TABLES_DIR:-"${PROJECT_ROOT}/06_variant_calling/tables
 helper_dir="${HELPER_DIR:-"${PROJECT_ROOT}/02_scripts/helpers"}"
 log_dir="${LOG_DIR:-"${PROJECT_ROOT}/08_logs/sequencing_analysis"}"
 
+make_abs_path() {
+    case "$1" in
+        /*) printf '%s\n' "$1" ;;
+        *) printf '%s/%s\n' "$PROJECT_ROOT" "$1" ;;
+    esac
+}
+
+reference="$(make_abs_path "$reference")"
+bwa_index="$(make_abs_path "$bwa_index")"
+
 for dir_var in fastq_dir fastqc_raw fastqc_clean trimgalore_dir alignment sorted dedup \
     variant_raw variant_qc variant_poly variant_high variant_poly_annot variant_high_annot \
     variant_tables helper_dir log_dir SNPEFF_DATA_DIR; do
     value="${!dir_var}"
+    value="$(make_abs_path "$value")"
     value="${value%/}/"
     printf -v "$dir_var" '%s' "$value"
 done
 
 # 阈值参数
-MIN_DP_CALL=10
-MIN_DP_AF=20
-MIN_AF_POLY=0.01
-MAX_AF_POLY=0.99
-MIN_AF_HIGH=0.80
-MIN_QUAL=30
+THREADS="${THREADS:-4}"
+SORT_MEM="${SORT_MEM:-1G}"
+MIN_DP_CALL="${MIN_DP_CALL:-10}"
+MIN_DP_AF="${MIN_DP_AF:-20}"
+MIN_AF_POLY="${MIN_AF_POLY:-0.01}"
+MAX_AF_POLY="${MAX_AF_POLY:-0.99}"
+MIN_AF_HIGH="${MIN_AF_HIGH:-0.80}"
+MIN_QUAL="${MIN_QUAL:-30}"
 
 # -------------------------- 3. 初始化 --------------------------
 echo "=== 初始化：创建目录 & 检查依赖 ==="
@@ -139,253 +157,18 @@ else
     exit 1
 fi
 
-# -------------------------- 4. 写入辅助Python脚本 --------------------------
+# -------------------------- 4. 检查辅助Python脚本 --------------------------
 
-# 4.1 按 AF 拆分 VCF
 split_py="${helper_dir}/split_vcf_by_af.py"
-
-cat > "$split_py" << 'PYEOF'
-#!/usr/bin/env python3
-from __future__ import annotations
-import argparse
-import gzip
-from pathlib import Path
-
-def open_text(path):
-    if str(path).endswith(".gz"):
-        return gzip.open(path, "rt")
-    return open(path, "rt")
-
-def parse_info(info_str):
-    d = {}
-    if info_str == "." or not info_str:
-        return d
-    for item in info_str.split(";"):
-        if "=" in item:
-            k, v = item.split("=", 1)
-            d[k] = v
-        else:
-            d[item] = "1"
-    return d
-
-def safe_int(x):
-    if x is None:
-        return None
-    try:
-        return int(float(x))
-    except Exception:
-        return None
-
-def pick_ao_dp(info, fmt_keys, sample_fields, alt_index=0):
-    fmt = dict(zip(fmt_keys, sample_fields)) if fmt_keys and sample_fields else {}
-    ao = None
-    dp = None
-
-    # FORMAT/DP
-    if "DP" in fmt:
-        dp = safe_int(fmt.get("DP"))
-
-    # FORMAT/AO
-    if "AO" in fmt:
-        vals = fmt.get("AO", "").split(",")
-        if alt_index < len(vals):
-            ao = safe_int(vals[alt_index])
-
-    # FORMAT/AD = ref,alt1,alt2...
-    if (ao is None or dp is None) and "AD" in fmt:
-        vals = [safe_int(x) for x in fmt.get("AD", "").split(",")]
-        if len(vals) > 1 + alt_index:
-            ao = vals[1 + alt_index]
-        if dp is None:
-            valid = [x for x in vals if x is not None]
-            if valid:
-                dp = sum(valid)
-
-    # INFO fallback
-    if dp is None and "DP" in info:
-        dp = safe_int(info.get("DP"))
-    if ao is None and "AO" in info:
-        vals = info.get("AO", "").split(",")
-        if alt_index < len(vals):
-            ao = safe_int(vals[alt_index])
-
-    return ao, dp
-
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--vcf", required=True)
-    ap.add_argument("--poly_sites", required=True)
-    ap.add_argument("--high_sites", required=True)
-    ap.add_argument("--poly_tsv", required=True)
-    ap.add_argument("--high_tsv", required=True)
-    ap.add_argument("--min_dp", type=int, default=20)
-    ap.add_argument("--min_af_poly", type=float, default=0.01)
-    ap.add_argument("--max_af_poly", type=float, default=0.99)
-    ap.add_argument("--min_af_high", type=float, default=0.8)
-    args = ap.parse_args()
-
-    poly_sites = []
-    high_sites = []
-    poly_rows = []
-    high_rows = []
-
-    with open_text(Path(args.vcf)) as f:
-        for line in f:
-            if line.startswith("#"):
-                continue
-
-            cols = line.rstrip("\n").split("\t")
-            if len(cols) < 8:
-                continue
-
-            chrom, pos, _id, ref, alts, qual, flt, info_str = cols[:8]
-            fmt_keys = []
-            sample_fields = []
-
-            if len(cols) >= 10:
-                fmt_keys = cols[8].split(":")
-                sample_fields = cols[9].split(":")
-
-            info = parse_info(info_str)
-
-            for alt_index, alt in enumerate(alts.split(",")):
-                ao, dp = pick_ao_dp(info, fmt_keys, sample_fields, alt_index)
-
-                if dp is None or dp < args.min_dp:
-                    continue
-
-                if ao is None:
-                    continue
-
-                af = ao / dp if dp > 0 else 0.0
-                site = f"{chrom}\t{pos}\n"
-                row = [chrom, pos, ref, alt, dp, ao, f"{float(af):.6f}"]
-
-                if args.min_af_poly <= af < args.max_af_poly:
-                    poly_sites.append(site)
-                    poly_rows.append(row)
-
-                if af >= args.min_af_high:
-                    high_sites.append(site)
-                    high_rows.append(row)
-
-    def write_unique_lines(path, lines):
-        seen = set()
-        with open(path, "w") as out:
-            for x in lines:
-                if x not in seen:
-                    out.write(x)
-                    seen.add(x)
-
-    write_unique_lines(args.poly_sites, poly_sites)
-    write_unique_lines(args.high_sites, high_sites)
-
-    header = "CHROM\tPOS\tREF\tALT\tDP\tAO\tAF\n"
-    with open(args.poly_tsv, "w") as out:
-        out.write(header)
-        for r in poly_rows:
-            out.write("\t".join(map(str, r)) + "\n")
-
-    with open(args.high_tsv, "w") as out:
-        out.write(header)
-        for r in high_rows:
-            out.write("\t".join(map(str, r)) + "\n")
-
-if __name__ == "__main__":
-    main()
-PYEOF
-
-chmod +x "$split_py"
-
-# 4.2 识别多种 FASTQ 命名并输出样本配对表
 pair_py="${helper_dir}/detect_fastq_pairs.py"
 
-cat > "$pair_py" << 'PYEOF'
-#!/usr/bin/env python3
-from __future__ import annotations
-import argparse
-from pathlib import Path
-import re
-import sys
-
-PATTERNS = [
-    (re.compile(r"^(?P<sample>.+)_1\.(fastq|fq)\.gz$"), "R1"),
-    (re.compile(r"^(?P<sample>.+)_2\.(fastq|fq)\.gz$"), "R2"),
-    (re.compile(r"^(?P<sample>.+)_R1\.(fastq|fq)\.gz$"), "R1"),
-    (re.compile(r"^(?P<sample>.+)_R2\.(fastq|fq)\.gz$"), "R2"),
-    (re.compile(r"^(?P<sample>.+)_R1_001\.(fastq|fq)\.gz$"), "R1"),
-    (re.compile(r"^(?P<sample>.+)_R2_001\.(fastq|fq)\.gz$"), "R2"),
-]
-
-def detect_pairs(indir: Path):
-    samples = {}
-    unmatched = []
-
-    files = sorted(set(list(indir.glob("*.fastq.gz")) + list(indir.glob("*.fq.gz"))))
-
-    for p in files:
-        name = p.name
-        matched = False
-        for rx, read_tag in PATTERNS:
-            m = rx.match(name)
-            if m:
-                sample = m.group("sample")
-                samples.setdefault(sample, {})
-                if read_tag in samples[sample]:
-                    print(f"ERROR: duplicated {read_tag} for sample {sample}: {name}", file=sys.stderr)
-                    sys.exit(1)
-                samples[sample][read_tag] = str(p.resolve())
-                matched = True
-                break
-        if not matched:
-            unmatched.append(name)
-
-    good = []
-    bad = []
-
-    for sample, d in sorted(samples.items()):
-        r1 = d.get("R1")
-        r2 = d.get("R2")
-        if r1 and r2:
-            good.append((sample, r1, r2))
-        else:
-            bad.append((sample, r1, r2))
-
-    return good, bad, unmatched
-
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--indir", required=True)
-    ap.add_argument("--out", required=True)
-    args = ap.parse_args()
-
-    good, bad, unmatched = detect_pairs(Path(args.indir))
-
-    if unmatched:
-        print("WARNING: unmatched FASTQ files:", file=sys.stderr)
-        for x in unmatched:
-            print(f"  {x}", file=sys.stderr)
-
-    if bad:
-        print("ERROR: some samples do not have complete R1/R2 pairs:", file=sys.stderr)
-        for sample, r1, r2 in bad:
-            print(f"  {sample}\tR1={r1}\tR2={r2}", file=sys.stderr)
-        sys.exit(1)
-
-    if not good:
-        print("ERROR: no paired FASTQ files detected.", file=sys.stderr)
-        sys.exit(1)
-
-    with open(args.out, "w") as out:
-        out.write("sample\tfq1\tfq2\n")
-        for sample, fq1, fq2 in good:
-            out.write(f"{sample}\t{fq1}\t{fq2}\n")
-
-if __name__ == "__main__":
-    main()
-PYEOF
-
-chmod +x "$pair_py"
+for helper in "$split_py" "$pair_py"; do
+    if [ ! -f "$helper" ]; then
+        echo "❌ 错误：辅助脚本不存在 → $helper"
+        exit 1
+    fi
+    chmod +x "$helper"
+done
 
 # -------------------------- 5. 原始数据FastQC --------------------------
 echo -e "\n=== Step 1: 原始数据FastQC质控 ==="
@@ -396,7 +179,7 @@ if [ "${#raw_fastqs[@]}" -eq 0 ]; then
     exit 1
 fi
 
-"$fastqc" -t 4 -o "$fastqc_raw" "${raw_fastqs[@]}"
+"$fastqc" -t "$THREADS" -o "$fastqc_raw" "${raw_fastqs[@]}"
 "$multiqc" -o "$fastqc_raw" "$fastqc_raw"
 echo "✅ 原始数据质控完成"
 
@@ -412,10 +195,31 @@ echo "✅ 已识别到 $sample_count 个双端样本"
 echo -e "\n=== Step 3: Trim Galore! 修剪 ==="
 
 tail -n +2 "$pair_tsv" | while IFS=$'\t' read -r sample fq1 fq2; do
+    trimmed_done=false
+    for r1_candidate in \
+        "${trimgalore_dir}/${sample}_1_val_1.fq.gz" \
+        "${trimgalore_dir}/${sample}_R1_val_1.fq.gz" \
+        "${trimgalore_dir}/${sample}_R1_001_val_1.fq.gz"
+    do
+        r2_candidate="${r1_candidate/_val_1.fq.gz/_val_2.fq.gz}"
+        r2_candidate="${r2_candidate/_1_val_2.fq.gz/_2_val_2.fq.gz}"
+        r2_candidate="${r2_candidate/_R1_val_2.fq.gz/_R2_val_2.fq.gz}"
+        r2_candidate="${r2_candidate/_R1_001_val_2.fq.gz/_R2_001_val_2.fq.gz}"
+        if [ -s "$r1_candidate" ] && [ -s "$r2_candidate" ]; then
+            trimmed_done=true
+            break
+        fi
+    done
+
+    if [ "$trimmed_done" = true ]; then
+        echo "跳过已完成修剪：$sample"
+        continue
+    fi
+
     echo "正在修剪样本：$sample"
 
     "$trim_galore" -q 25 --phred33 --length 50 \
-        --paired --cores 4 --path_to_cutadapt "$cutadapt" \
+        --paired --cores "$THREADS" --path_to_cutadapt "$cutadapt" \
         -o "$trimgalore_dir" "$fq1" "$fq2"
 done
 
@@ -430,7 +234,7 @@ if [ "${#trimmed_fastqs[@]}" -eq 0 ]; then
     exit 1
 fi
 
-"$fastqc" -t 4 -o "$fastqc_clean" "${trimmed_fastqs[@]}"
+"$fastqc" -t "$THREADS" -o "$fastqc_clean" "${trimmed_fastqs[@]}"
 "$multiqc" -o "$fastqc_clean" "$fastqc_clean"
 echo "✅ 修剪后质控完成"
 
@@ -470,14 +274,22 @@ tail -n +2 "$pair_tsv" | while IFS=$'\t' read -r sample fq1 fq2; do
         exit 1
     fi
 
-    sam_out="${alignment}${sample}.sam"
+    sorted_bam="${sorted}${sample}.sorted.bam"
     log_out="${alignment}${sample}_bwa.log"
 
-    echo "正在比对样本：$sample"
+    if [ -s "$sorted_bam" ] && [ -s "${sorted_bam}.bai" ]; then
+        echo "跳过已完成比对和排序：$sample"
+        continue
+    fi
 
-    "$bwa" mem -t 4 -M -T 30 \
+    echo "正在比对并排序样本：$sample"
+
+    "$bwa" mem -t "$THREADS" -M -T 30 \
         -R "@RG\tID:${sample}\tSM:${sample}\tPL:ILLUMINA\tLB:${sample}_lib" \
-        "$bwa_index" "$trimmed_fq1" "$trimmed_fq2" > "$sam_out" 2> "$log_out"
+        "$bwa_index" "$trimmed_fq1" "$trimmed_fq2" 2> "$log_out" | \
+    "$samtools" sort -O bam -@ "$THREADS" -m "$SORT_MEM" -o "$sorted_bam" -
+
+    "$samtools" index "$sorted_bam"
 done
 
 bwa_logs=( "$alignment"/*.log )
@@ -486,29 +298,7 @@ if [ "${#bwa_logs[@]}" -gt 0 ]; then
 fi
 echo "✅ 比对完成"
 
-# -------------------------- 10. SAM转BAM并排序 --------------------------
-echo -e "\n=== Step 6: SAM转BAM并排序 ==="
-cd "$alignment"
-
-sam_files=( *.sam )
-if [ "${#sam_files[@]}" -eq 0 ]; then
-    echo "❌ 错误：未找到 SAM 文件"
-    exit 1
-fi
-
-for sam in "${sam_files[@]}"; do
-    [ -f "$sam" ] || continue
-    sample=$(basename "$sam" ".sam")
-    sorted_bam="${sorted}${sample}.sorted.bam"
-
-    "$samtools" sort -O bam -@ 4 -m 1G -o "$sorted_bam" "$sam"
-    "$samtools" index "$sorted_bam"
-    rm -f "$sam"
-done
-
-echo "✅ 排序完成"
-
-# -------------------------- 11. 去重 --------------------------
+# -------------------------- 10. 去重 --------------------------
 echo -e "\n=== Step 7: Picard去重 ==="
 cd "$sorted"
 
@@ -524,6 +314,11 @@ for bam in "${sorted_bams[@]}"; do
     dedup_bam="${dedup}${sample}.dedup.bam"
     dedup_metrics="${dedup}${sample}_dup_metrics.txt"
 
+    if [ -s "$dedup_bam" ] && [ -s "${dedup_bam}.bai" ]; then
+        echo "跳过已完成去重：$sample"
+        continue
+    fi
+
     "$picard" MarkDuplicates \
         I="$bam" \
         O="$dedup_bam" \
@@ -537,7 +332,7 @@ done
 
 echo "✅ 去重完成"
 
-# -------------------------- 12. 变异检测 --------------------------
+# -------------------------- 11. 变异检测 --------------------------
 echo -e "\n=== Step 8: 变异检测 ==="
 cd "$dedup"
 
@@ -552,6 +347,11 @@ for bam in "${dedup_bams[@]}"; do
     sample=$(basename "$bam" ".dedup.bam")
     raw_vcf_gz="${variant_raw}${sample}.raw.vcf.gz"
     mpileup_log="${variant_raw}${sample}_mpileup.log"
+
+    if [ -s "$raw_vcf_gz" ] && { [ -s "${raw_vcf_gz}.csi" ] || [ -s "${raw_vcf_gz}.tbi" ]; }; then
+        echo "跳过已完成变异检测：$sample"
+        continue
+    fi
 
     echo "正在检测变异：$sample"
 
@@ -581,6 +381,11 @@ for vcf_gz in "${raw_vcfs[@]}"; do
     [ -f "$vcf_gz" ] || continue
     sample=$(basename "$vcf_gz" ".raw.vcf.gz")
     qc_vcf_gz="${variant_qc}${sample}.qc.vcf.gz"
+
+    if [ -s "$qc_vcf_gz" ] && { [ -s "${qc_vcf_gz}.csi" ] || [ -s "${qc_vcf_gz}.tbi" ]; }; then
+        echo "跳过已完成基础过滤：$sample"
+        continue
+    fi
 
     echo "正在基础过滤：$sample"
 
@@ -618,6 +423,13 @@ for vcf_gz in "${qc_vcfs[@]}"; do
 
     poly_vcf_gz="${variant_poly}${sample}.polymorphic.vcf.gz"
     high_vcf_gz="${variant_high}${sample}.highfreq.vcf.gz"
+
+    if [ -s "$poly_tsv" ] && [ -s "$high_tsv" ] \
+        && { [ -s "$poly_vcf_gz" ] || [ ! -s "$poly_sites" ]; } \
+        && { [ -s "$high_vcf_gz" ] || [ ! -s "$high_sites" ]; }; then
+        echo "跳过已完成AF拆分：$sample"
+        continue
+    fi
 
     echo "正在AF拆分：$sample"
 
@@ -675,6 +487,11 @@ annotate_dir () {
         ann_log="${output_dir}${sample}_snpEff.log"
         stats_html="${output_dir}${sample}_snpEff_stats.html"
 
+        if [ -s "$ann_vcf_gz" ] && { [ -s "${ann_vcf_gz}.csi" ] || [ -s "${ann_vcf_gz}.tbi" ]; }; then
+            echo "跳过已完成注释：$sample"
+            continue
+        fi
+
         echo "正在注释：$sample"
 
         "$bcftools" view -O v "$vcf_gz" | \
@@ -716,7 +533,12 @@ for ann_dir in "$variant_poly_annot" "$variant_high_annot"; do
     for vcf_gz in "${ann_vcfs[@]}"; do
         [ -f "$vcf_gz" ] || continue
         sample=$(basename "$vcf_gz" ".annotated.vcf.gz")
-        "$bcftools" stats "$vcf_gz" > "${ann_dir}${sample}.variant_stats.txt"
+        stats_out="${ann_dir}${sample}.variant_stats.txt"
+        if [ -s "$stats_out" ]; then
+            echo "跳过已完成统计：$sample"
+            continue
+        fi
+        "$bcftools" stats "$vcf_gz" > "$stats_out"
     done
 
     "$multiqc" -o "$ann_dir" "$ann_dir" || true

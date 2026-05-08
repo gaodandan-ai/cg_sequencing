@@ -47,3 +47,6 @@ __pycache__/
 /02_scripts/*.zip
 /02_scripts/build_log.txt
 /02_scripts/beizhu.txt
+
+# Local runtime configuration
+/config.env
