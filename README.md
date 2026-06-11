@@ -83,13 +83,14 @@ AF = 85 / 100 = 0.85
 ├── 00_reference/              # 参考基因组 FASTA/GFF，可保留小型公共参考文件
 ├── 01_raw_data/               # 原始 FASTQ，本地放置，不上传 GitHub
 ├── 02_scripts/                # 主流程和辅助脚本
-│   ├── CG_PrepareIndex.sh
-│   ├── CG_GenomeReseq.sh
+│   ├── run_pipeline.sh        # 一键流水线（推荐）
+│   ├── CG_PrepareIndex.sh     # 参考基因组索引构建
+│   ├── CG_GenomeReseq.sh      # 重测序分析主流程
 │   └── helpers/
 ├── 03_qc/                     # FastQC/MultiQC 输出，不上传
 ├── 04_clean_data/             # Trim Galore 输出，不上传
 ├── 05_alignment/              # SAM/BAM 输出，不上传
-├── 06_variant_calling/        # VCF 和统计输出；默认仅保留 tables/*.tsv
+├── 06_variant_calling/        # VCF 和统计输出，不上传
 ├── 07_annotation/             # snpEff 自定义数据库（已内置）
 └── 08_logs/                   # 运行日志，不上传
 ```
@@ -149,6 +150,16 @@ find 01_raw_data -maxdepth 1 \( -name "*.fq.gz" -o -name "*.fastq.gz" \)
 ```bash
 cd ~/cg_sequencing
 ```
+
+### 一键运行（推荐）
+
+将双端 FASTQ 放入 `01_raw_data/` 后，只需一条命令即可完成全部分析：
+
+```bash
+bash 02_scripts/run_pipeline.sh
+```
+
+### 分步运行
 
 如果不确定自己在哪个目录：
 
