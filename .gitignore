@@ -30,8 +30,6 @@ __pycache__/
 /06_variant_calling/tables/*
 !/06_variant_calling/tables/*.tsv
 
-# Generated annotation files
-
 # Logs
 /08_logs/*
 !/08_logs/.gitkeep

@@ -90,7 +90,7 @@ AF = 85 / 100 = 0.85
 ├── 04_clean_data/             # Trim Galore 输出，不上传
 ├── 05_alignment/              # SAM/BAM 输出，不上传
 ├── 06_variant_calling/        # VCF 和统计输出；默认仅保留 tables/*.tsv
-├── 07_annotation/             # snpEff 自定义数据库，本地构建，不上传
+├── 07_annotation/             # snpEff 自定义数据库（已内置）
 └── 08_logs/                   # 运行日志，不上传
 ```
 
@@ -125,11 +125,8 @@ multiqc --version
    - `sample_1.fastq.gz` / `sample_2.fastq.gz`
    - `sample_R1.fq.gz` / `sample_R2.fq.gz`
    - `sample_R1_001.fq.gz` / `sample_R2_001.fq.gz`
-3. 构建 snpEff 自定义数据库，并将数据库目录放在 `07_annotation/` 下。默认数据库名：
-
-```text
-Corynebacterium_glutamicum_ATCC13032
-```
+3. `.gitignore` 会默认排除生成的大文件（BAM、VCF、QC 报告、日志等），结果表格 `.tsv` 会保留。
+   snpEff 注释数据库已预置于 `07_annotation/` 下，无需额外构建。
 
 检查输入文件是否放对位置：
 
@@ -426,15 +423,21 @@ which samtools
 which bcftools
 ```
 
-### snpEff 数据库不存在
+### snpEff 数据库问题
 
-检查数据库目录：
+`snpEff` 注释数据库已预置在 `07_annotation/` 下，通常无需额外配置。
+如果遇到数据库相关的错误，请检查：
 
 ```bash
-ls -lh 07_annotation/
+ls -lh 07_annotation/Corynebacterium_glutamicum_ATCC13032/
 ```
 
-确认 `config.env` 中的 `CG_DB_NAME` 和实际目录名一致。
+确认目录不为空，且 `config.env` 中的 `CG_DB_NAME` 与实际目录名一致。
+如果需要重新构建，可运行：
+
+```bash
+snpEff build -Xmx16g -gff3 -v -noCheckCds -noCheckProtein -dataDir 07_annotation Corynebacterium_glutamicum_ATCC13032
+```
 
 ### 中途失败后是否需要从头运行
 
@@ -446,7 +449,7 @@ bash 02_scripts/CG_GenomeReseq.sh
 
 ## GitHub 上传说明
 
-仓库已经通过 `.gitignore` 排除了原始 FASTQ、清洗 FASTQ、SAM/BAM、VCF、snpEff 二进制数据库、QC 报告和日志等大文件。默认可上传脚本、README、环境文件、参考 FASTA/GFF 以及 `06_variant_calling/tables/*.tsv` 这类小型结果表。
+仓库已经通过 `.gitignore` 排除了原始 FASTQ、清洗 FASTQ、SAM/BAM、VCF、QC 报告和日志等大文件。默认可上传脚本、README、环境文件、参考 FASTA/GFF、snpEff 注释数据库以及 `06_variant_calling/tables/*.tsv` 这类小型结果表。
 
 初始化并上传到 GitHub 的常用命令：
 
