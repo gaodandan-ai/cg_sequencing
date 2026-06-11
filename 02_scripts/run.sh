@@ -7,7 +7,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 # 颜色输出
 green() { echo -e "\033[32m$1\033[0m"; }
@@ -53,7 +53,7 @@ fi
 # --------------------------------------------------
 # Step 3: 构建参考基因组索引
 # --------------------------------------------------
-green "═══ Step 1/2: 构建参考基因组索引 ═══"
+green "═══ Step 1/3: 构建参考基因组索引 ═══"
 echo ""
 
 # 如果索引已存在则跳过
@@ -61,7 +61,7 @@ if [ -f "${PROJECT_ROOT}/00_reference/index/genome.bwt" ] && \
    [ -f "${PROJECT_ROOT}/00_reference/genome.fna.fai" ]; then
     echo "✅ 索引已存在，跳过索引构建步骤"
 else
-    bash "${SCRIPT_DIR}/prepare_index.sh"
+    bash "${SCRIPT_DIR}/pipeline/prepare_index.sh"
     echo ""
 fi
 
@@ -70,19 +70,30 @@ echo ""
 # --------------------------------------------------
 # Step 4: 运行主流程
 # --------------------------------------------------
-green "═══ Step 2/2: 运行重测序分析主流程 ═══"
+green "═══ Step 2/3: 运行重测序分析主流程 ═══"
 echo ""
 
 mkdir -p "${PROJECT_ROOT}/08_logs/sequencing_analysis"
 log_file="${PROJECT_ROOT}/08_logs/sequencing_analysis/pipeline_$(date '+%Y%m%d_%H%M%S').log"
 
-bash "${SCRIPT_DIR}/reseq.sh" 2>&1 | tee "$log_file"
+bash "${SCRIPT_DIR}/pipeline/reseq.sh" 2>&1 | tee "$log_file"
 pipeline_exit=${PIPESTATUS[0]}
 
 echo ""
 
 # --------------------------------------------------
-# Step 5: 完成
+# Step 5: 生成分析报告
+# --------------------------------------------------
+report_py="${PROJECT_ROOT}/02_scripts/analysis/generate_report.py"
+if [ "$pipeline_exit" -eq 0 ] && [ -f "$report_py" ]; then
+    green "═══ Step 3/3: 生成分析报告 ═══"
+    echo ""
+    python3 "$report_py"
+    echo ""
+fi
+
+# --------------------------------------------------
+# Step 6: 完成
 # --------------------------------------------------
 echo "============================================================================"
 if [ "$pipeline_exit" -eq 0 ]; then

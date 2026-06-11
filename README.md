@@ -87,9 +87,9 @@ AF = 85 / 100 = 0.85
 .
 ├── 00_reference/              # 参考基因组 FASTA/GFF，可保留小型公共参考文件
 ├── 01_raw_data/               # 原始 FASTQ，本地放置，不上传 GitHub
-├── 02_scripts/                # 脚本目录（优化后的结构）
-│   ├── pipeline/              # 核心流水线脚本
-│   │   ├── run.sh             # 一键流水线（推荐）
+├── 02_scripts/                # 脚本目录
+│   ├── run.sh                 # 一键流水线（推荐，入口级）
+│   ├── pipeline/              # 核心流水线子脚本
 │   │   ├── prepare_index.sh   # 参考基因组索引构建
 │   │   └── reseq.sh           # 重测序分析主流程
 │   ├── analysis/              # 下游分析脚本
@@ -172,7 +172,7 @@ cd cg_sequencing_model   # 或你 clone 时的本地目录名
 将双端 FASTQ 放入 `01_raw_data/` 后，只需一条命令即可完成全部分析：
 
 ```bash
-bash 02_scripts/pipeline/run.sh
+bash 02_scripts/run.sh
 ```
 
 ### 分步运行
