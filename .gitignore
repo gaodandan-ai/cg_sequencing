@@ -30,9 +30,7 @@ __pycache__/
 /06_variant_calling/tables/*
 !/06_variant_calling/tables/*.tsv
 
-# Generated snpEff database files
-/07_annotation/*
-!/07_annotation/.gitkeep
+# Generated annotation files
 
 # Logs
 /08_logs/*
