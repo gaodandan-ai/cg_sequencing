@@ -23,12 +23,9 @@ __pycache__/
 /05_alignment/*
 !/05_alignment/.gitkeep
 
-# Generated variant outputs; keep compact summary tables if desired
+# Generated variant outputs (VCFs, tables, stats, etc.)
 /06_variant_calling/*
 !/06_variant_calling/.gitkeep
-!/06_variant_calling/tables/
-/06_variant_calling/tables/*
-!/06_variant_calling/tables/*.tsv
 
 # Logs
 /08_logs/*
