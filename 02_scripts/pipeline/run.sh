@@ -7,7 +7,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 # 颜色输出
 green() { echo -e "\033[32m$1\033[0m"; }
@@ -61,7 +61,7 @@ if [ -f "${PROJECT_ROOT}/00_reference/index/genome.bwt" ] && \
    [ -f "${PROJECT_ROOT}/00_reference/genome.fna.fai" ]; then
     echo "✅ 索引已存在，跳过索引构建步骤"
 else
-    bash "${SCRIPT_DIR}/CG_PrepareIndex.sh"
+    bash "${SCRIPT_DIR}/prepare_index.sh"
     echo ""
 fi
 
@@ -76,7 +76,7 @@ echo ""
 mkdir -p "${PROJECT_ROOT}/08_logs/sequencing_analysis"
 log_file="${PROJECT_ROOT}/08_logs/sequencing_analysis/pipeline_$(date '+%Y%m%d_%H%M%S').log"
 
-bash "${SCRIPT_DIR}/CG_GenomeReseq.sh" 2>&1 | tee "$log_file"
+bash "${SCRIPT_DIR}/reseq.sh" 2>&1 | tee "$log_file"
 pipeline_exit=${PIPESTATUS[0]}
 
 echo ""

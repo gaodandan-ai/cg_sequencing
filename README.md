@@ -1,6 +1,8 @@
 # 谷氨酸棒杆菌全基因组重测序分析流程
 
-谷氨酸棒杆菌（*Corynebacterium glutamicum*）全基因组重测序分析流程。项目包含从双端 FASTQ 质控、修剪、BWA 比对、BAM 排序去重、bcftools 变异检测，到按等位基因频率（AF）拆分 polymorphic / highfreq 突变并用 snpEff 注释的脚本。
+谷氨酸棒杆菌（*Corynebacterium glutamicum*）全基因组重测序分析流程。项目包含从双端 FASTQ 质控、修剪、BWA 比对、BAM 排序去重、bcftools 变异检测，到按等位基因频率（AF）拆分 polymorphic / highfreq 突变并用 snpEff 注释的完整流水线，以及自动生成 Excel 分析报告。
+
+**GitHub 仓库**: `git@github.com:gaodandan-ai/cg_sequencing.git`
 
 ## 重测序分析原理
 
@@ -20,6 +22,8 @@ BAM 比对文件
 VCF 变异文件
   ↓ 过滤、分类、注释和统计
 突变位点、突变频率、影响基因、氨基酸变化等结果
+  ↓ 报告生成
+Excel 分析报告
 ```
 
 本项目主要回答这些问题：
@@ -54,6 +58,7 @@ VCF 变异文件
 8. `bcftools filter` 根据质量值和测序深度过滤低可信变异。
 9. 辅助脚本 `split_vcf_by_af.py` 根据 AF 拆分 polymorphic 和 highfreq 变异。
 10. `snpEff` 结合 GFF 注释文件解释突变影响，例如是否导致同义/非同义突变。
+11. `generate_report.py` 自动生成包含样本汇总、变异详情、对比分析和基因影响的 Excel 报告。
 
 ### AF 是什么
 
@@ -82,11 +87,16 @@ AF = 85 / 100 = 0.85
 .
 ├── 00_reference/              # 参考基因组 FASTA/GFF，可保留小型公共参考文件
 ├── 01_raw_data/               # 原始 FASTQ，本地放置，不上传 GitHub
-├── 02_scripts/                # 主流程和辅助脚本
-│   ├── run_pipeline.sh        # 一键流水线（推荐）
-│   ├── CG_PrepareIndex.sh     # 参考基因组索引构建
-│   ├── CG_GenomeReseq.sh      # 重测序分析主流程
-│   └── helpers/
+├── 02_scripts/                # 脚本目录（优化后的结构）
+│   ├── pipeline/              # 核心流水线脚本
+│   │   ├── run.sh             # 一键流水线（推荐）
+│   │   ├── prepare_index.sh   # 参考基因组索引构建
+│   │   └── reseq.sh           # 重测序分析主流程
+│   ├── analysis/              # 下游分析脚本
+│   │   └── generate_report.py # Excel 分析报告生成
+│   └── lib/                   # 公共辅助模块
+│       ├── detect_fastq_pairs.py
+│       └── split_vcf_by_af.py
 ├── 03_qc/                     # FastQC/MultiQC 输出，不上传
 ├── 04_clean_data/             # Trim Galore 输出，不上传
 ├── 05_alignment/              # SAM/BAM 输出，不上传
@@ -97,7 +107,7 @@ AF = 85 / 100 = 0.85
 
 ## 环境依赖
 
-推荐使用 Conda激活环境：
+推荐使用 Conda 激活环境：
 
 ```bash
 conda env create -f environment.yml
@@ -116,6 +126,12 @@ multiqc --version
 
 主要工具包括：BWA、Trim Galore、Cutadapt、FastQC、MultiQC、Samtools、Bcftools、snpEff、Picard 和 Python 3。
 
+生成 Excel 报告还需要安装：
+
+```bash
+pip install openpyxl
+```
+
 ## 输入文件准备
 
 1. 将参考基因组放入 `00_reference/`，默认文件名为：
@@ -126,7 +142,7 @@ multiqc --version
    - `sample_1.fastq.gz` / `sample_2.fastq.gz`
    - `sample_R1.fq.gz` / `sample_R2.fq.gz`
    - `sample_R1_001.fq.gz` / `sample_R2_001.fq.gz`
-3. `.gitignore` 会默认排除生成的大文件（BAM、VCF、QC 报告、日志等），结果表格 `.tsv` 会保留。
+3. `.gitignore` 会默认排除生成的大文件（BAM、VCF、QC 报告、日志等），结果表格 `.tsv` 和报告 `.xlsx` 会保留。
    snpEff 注释数据库已预置于 `07_annotation/` 下，无需额外构建。
 
 检查输入文件是否放对位置：
@@ -148,7 +164,7 @@ find 01_raw_data -maxdepth 1 \( -name "*.fq.gz" -o -name "*.fastq.gz" \)
 进入项目目录：
 
 ```bash
-cd ~/cg_sequencing
+cd cg_sequencing_model   # 或你 clone 时的本地目录名
 ```
 
 ### 一键运行（推荐）
@@ -156,22 +172,15 @@ cd ~/cg_sequencing
 将双端 FASTQ 放入 `01_raw_data/` 后，只需一条命令即可完成全部分析：
 
 ```bash
-bash 02_scripts/run_pipeline.sh
+bash 02_scripts/pipeline/run.sh
 ```
 
 ### 分步运行
 
-如果不确定自己在哪个目录：
-
-```bash
-pwd
-ls
-```
-
 先构建参考基因组索引：
 
 ```bash
-bash 02_scripts/CG_PrepareIndex.sh
+bash 02_scripts/pipeline/prepare_index.sh
 ```
 
 构建完成后可以检查索引文件：
@@ -184,19 +193,19 @@ ls -lh 00_reference/genome.fna.fai
 再运行重测序分析主流程：
 
 ```bash
-bash 02_scripts/CG_GenomeReseq.sh
+bash 02_scripts/pipeline/reseq.sh
 ```
 
 如果想把终端输出同时保存为日志，可以运行：
 
 ```bash
-bash 02_scripts/CG_GenomeReseq.sh 2>&1 | tee 08_logs/sequencing_analysis/run.log
+bash 02_scripts/pipeline/reseq.sh 2>&1 | tee 08_logs/sequencing_analysis/run.log
 ```
 
 如果服务器 CPU 更多，可以临时指定线程数：
 
 ```bash
-THREADS=8 SORT_MEM=2G bash 02_scripts/CG_GenomeReseq.sh
+THREADS=8 SORT_MEM=2G bash 02_scripts/pipeline/reseq.sh
 ```
 
 主流程会依次执行：
@@ -211,6 +220,28 @@ THREADS=8 SORT_MEM=2G bash 02_scripts/CG_GenomeReseq.sh
 8. 基础质量过滤
 9. 按 AF 拆分 polymorphic / highfreq 变异
 10. snpEff 注释与 MultiQC 汇总
+11. bcftools 统计
+
+## 生成分析报告
+
+流水线运行完成后，生成 Excel 分析报告：
+
+```bash
+python 02_scripts/analysis/generate_report.py
+```
+
+报告包含 6 个工作表：
+
+| 工作表 | 内容 |
+|--------|------|
+| 样本变异汇总 | 各样本变异总数、SNP/Indel 数、Ts/Tv 比、平均深度、snpEff 影响统计 |
+| 高频变异详情 | 每个高频变异的具体位置、深度、等位基因频率 |
+| 多态变异详情 | 每个多态变异的具体位置、深度、等位基因频率 |
+| 变异对比分析 | 样本间共有/特有变异、多态位点对比 |
+| snpEff 影响分类 | HIGH/MODERATE/LOW/MODIFIER 等级在各样本中的分布 |
+| 基因影响详情 | 每个基因的具体变异效应（missense、synonymous 等） |
+
+输出文件：`06_variant_calling/analysis_report.xlsx`
 
 ## 可配置参数
 
@@ -221,20 +252,20 @@ REFERENCE=/path/to/genome.fna \
 FASTQ_DIR=/path/to/fastq \
 SNPEFF_DATA_DIR=/path/to/snpeff/data \
 SNPEFF_CONFIG=/path/to/snpEff.config \
-bash 02_scripts/CG_GenomeReseq.sh
+bash 02_scripts/pipeline/reseq.sh
 ```
 
 工具路径也可覆盖，例如：
 
 ```bash
-BWA=/path/to/bwa BCFTOOLS=/path/to/bcftools bash 02_scripts/CG_GenomeReseq.sh
+BWA=/path/to/bwa BCFTOOLS=/path/to/bcftools bash 02_scripts/pipeline/reseq.sh
 ```
 
 也可以复制配置模板后按需修改：
 
 ```bash
 cp config.env.example config.env
-bash 02_scripts/CG_GenomeReseq.sh
+bash 02_scripts/pipeline/reseq.sh
 ```
 
 关键阈值支持环境变量覆盖：
@@ -267,9 +298,10 @@ MIN_QUAL=30
 
 ## 脚本特性
 
-- 主流程直接调用 `02_scripts/helpers/` 中的辅助 Python 脚本，不会在运行时覆盖源码。
+- 主流程直接调用 `02_scripts/lib/` 中的辅助 Python 脚本，不会在运行时覆盖源码。
 - BWA 比对结果直接通过管道进入 `samtools sort`，不再生成体积很大的 SAM 中间文件。
 - 主要步骤支持断点续跑：已存在且完成索引的 BAM/VCF/注释/统计结果会自动跳过。
+- 流水线运行完成后可一键生成 Excel 分析报告。
 
 ## 如何查看结果
 
@@ -383,6 +415,11 @@ sample_snpEff_stats.html
 sample.variant_stats.txt
 ```
 
+### Excel 分析报告
+
+```bash
+ls -lh 06_variant_calling/analysis_report.xlsx
+```
 
 ## 常见问题
 
@@ -455,21 +492,18 @@ snpEff build -Xmx16g -gff3 -v -noCheckCds -noCheckProtein -dataDir 07_annotation
 不需要。脚本支持断点续跑，修复错误后重新运行主脚本即可：
 
 ```bash
-bash 02_scripts/CG_GenomeReseq.sh
+bash 02_scripts/pipeline/reseq.sh
 ```
 
 ## GitHub 上传说明
 
-仓库已经通过 `.gitignore` 排除了原始 FASTQ、清洗 FASTQ、SAM/BAM、VCF、QC 报告和日志等大文件。默认可上传脚本、README、环境文件、参考 FASTA/GFF、snpEff 注释数据库以及 `06_variant_calling/tables/*.tsv` 这类小型结果表。
+仓库已经通过 `.gitignore` 排除了原始 FASTQ、清洗 FASTQ、SAM/BAM、VCF、QC 报告和日志等大文件。默认可上传脚本、README、环境文件、参考 FASTA/GFF、snpEff 注释数据库以及 `06_variant_calling/tables/*.tsv` 和 `06_variant_calling/analysis_report.xlsx` 这类小型结果文件。
 
-初始化并上传到 GitHub 的常用命令：
+上传到 GitHub：
 
 ```bash
-git init
 git add .
-git commit -m "Initial genome resequencing pipeline"
-git branch -M main
-git remote add origin git@github.com:<your-name>/<repo-name>.git
+git commit -m "更新 README 和目录结构"
 git push -u origin main
 ```
 
@@ -479,4 +513,3 @@ git push -u origin main
 git status --short
 git ls-files --others --ignored --exclude-standard
 ```
-

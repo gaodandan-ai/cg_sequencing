@@ -21,7 +21,7 @@ shopt -s nullglob
 
 # -------------------------- 1. 环境与工具配置 --------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 if [ -f "${PROJECT_ROOT}/config.env" ]; then
     # shellcheck disable=SC1091
@@ -73,7 +73,7 @@ variant_poly_annot="${VARIANT_POLY_ANNOT_DIR:-"${PROJECT_ROOT}/06_variant_callin
 variant_high_annot="${VARIANT_HIGH_ANNOT_DIR:-"${PROJECT_ROOT}/06_variant_calling/annotated/highfreq"}"
 
 variant_tables="${VARIANT_TABLES_DIR:-"${PROJECT_ROOT}/06_variant_calling/tables"}"
-helper_dir="${HELPER_DIR:-"${PROJECT_ROOT}/02_scripts/helpers"}"
+helper_dir="${HELPER_DIR:-"${PROJECT_ROOT}/02_scripts/lib"}"
 log_dir="${LOG_DIR:-"${PROJECT_ROOT}/08_logs/sequencing_analysis"}"
 
 make_abs_path() {

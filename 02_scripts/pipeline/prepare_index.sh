@@ -1,8 +1,8 @@
 #!/bin/bash
-#SBATCH --job-name=CG_PrepareIndex
+#SBATCH --job-name=prepare_index
 #SBATCH --partition=qcpu_23a
-#SBATCH --error=08_logs/index_build/CG_PrepareIndex_%j.err
-#SBATCH --output=08_logs/index_build/CG_PrepareIndex_%j.out
+#SBATCH --error=08_logs/index_build/prepare_index_%j.err
+#SBATCH --output=08_logs/index_build/prepare_index_%j.out
 #SBATCH -n 8  # 优化：索引构建最多用8核，足够且不浪费
 #SBATCH --mem=8G  # 优化：谷棒基因组小，8G内存完全够用
 # 如需邮件提醒，可在本地提交脚本中自行添加 --mail-type / --mail-user
@@ -15,9 +15,9 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
-# 可通过环境变量覆盖工具路径，例如：BWA=/path/to/bwa bash 02_scripts/CG_PrepareIndex.sh
+# 可通过环境变量覆盖工具路径，例如：BWA=/path/to/bwa bash 02_scripts/pipeline/prepare_index.sh
 bwa="${BWA:-bwa}"
 samtools="${SAMTOOLS:-samtools}"
 
